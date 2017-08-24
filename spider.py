@@ -31,6 +31,9 @@ cur.execute('''CREATE TABLE IF NOT EXISTS Offender_Information
              weight TEXT,eye_color TEXT, native_county TEXT, native_state TEXT,
              prior_occupation TEXT, prior_prison_record TEXT, inc_summary TEXT,
              co_defendants TEXT, race_gender_victim TEXT)''')
+             
+cur.execute('''CREATE TABLE IF NOT EXISTS Offender_Last_Words
+            (id INTEGER, lastwords TEXT)''')
 
 def process_offender_info(url, execution_id):
     if (url[-3:] != "jpg") and (str(url) != "dr_info/no_info_available.html"):
@@ -59,11 +62,8 @@ def process_offender_info(url, execution_id):
             page_bottom_data = prog2.findall(str(html))
         if len(page_bottom_data) == 0:
             page_bottom_data = prog3.findall(str(html))
-        print(execution_id)
-        print(url)
         
         for item in page_bottom_data:
-            print(re.sub("[\\r\\n]"," ",item.strip()))
             opp_row_data.append(re.sub(r"[\r\n]+"," ",item.strip()))
         
         TDCJ_number = opp_row_data[1]
@@ -105,9 +105,29 @@ def process_offender_info(url, execution_id):
                                                         prior_occupation, prior_prison_record, inc_summary, co_defendants, race_gender_victim))
         conn.commit()
     else:
-        print("JPG file or missing file cannot be interpreted!")
+        return
 
-def process_lastwords(url, execution_id):
+def process_last_words(url, execution_id):
+    print('lastwords ',execution_id)
+    if (url[-3:] != "jpg"):
+        url = "http://www.tdcj.state.tx.us/death_row/"+str(url)
+        html = urllib.request.urlopen(url, context=ctx).read()
+    
+        # last_soup = BeautifulSoup(html, 'html.parser')
+#         last_rows = opp_soup.find_all('tr')
+        last_row_data = []
+        prog = re.compile("Last Statement:.*\<\/p\>.*\<p\>(.*)\<\/p")
+        prog_alt = re.compile("Last Statement:.*\<\/span\> \<\/p\>.*\<p\>(.*)\<\/p")
+        last_words_data = prog.findall(str(html))
+        if len(last_words_data) == 0:
+            last_words_data = prog_alt.findall(str(html))
+            
+        print(last_words_data)
+        cur.execute('''INSERT OR IGNORE INTO Offender_Last_Words (id, lastwords) VALUES ( ?, ?)''',
+                                                        (execution_id, last_words_data[0]))
+        conn.commit()
+        
+        
 
 url = "http://www.tdcj.state.tx.us/death_row/dr_executed_offenders.html"
 html = urllib.request.urlopen(url, context=ctx).read()
@@ -131,7 +151,12 @@ for row in rows:
                 else: 
                     continue
             elif field_counter == 6:
-                continue
+                last_anker = field.next_element
+                if isinstance(last_anker, bs4.element.Tag):
+                    last_href = last_anker.get('href')
+                    process_last_words(last_href,row_data[0])
+                else:
+                    continue
             else: 
                 row_data.append(field.string)
     data.append(row_data)  
